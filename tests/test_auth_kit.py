@@ -128,6 +128,15 @@ def test_protected_endpoint_accepts_valid_token(auth_app: FastAPI) -> None:
     assert response.json() == {"username": "bob"}
 
 
+def test_protected_endpoint_accepts_cookie_token(auth_app: FastAPI) -> None:
+    client = TestClient(auth_app)
+    token = create_test_token(username="cookiebob")
+    client.cookies.set("wiggl_session_token", token)
+    response = client.get("/profile")
+    assert response.status_code == 200
+    assert response.json() == {"username": "cookiebob"}
+
+
 def test_role_enforcement_forbidden_when_role_missing(auth_app: FastAPI) -> None:
     client = TestClient(auth_app)
     token = create_test_token(username="charlie", client_roles=("vault-viewer",))
