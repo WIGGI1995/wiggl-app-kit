@@ -1,31 +1,30 @@
-"""FastAPI route dependencies for extracting user context and enforcing roles."""
+"""FastAPI route dependencies re-exported for backwards compatibility."""
 
-from collections.abc import Callable
+from wiggl_app_kit.auth_kit.authentication import get_authenticated_user
+from wiggl_app_kit.auth_kit.authorization import (
+    AccessDeniedError,
+    require_all_permissions,
+    require_all_roles,
+    require_any_role,
+    require_client_role,
+    require_permissions,
+    require_realm_role,
+    require_roles,
+    require_scope,
+)
 
-from fastapi import HTTPException, Request, status
+get_current_user = get_authenticated_user
 
-from wiggl_app_kit.auth_kit.models import KeycloakUser
-
-
-def get_current_user(request: Request) -> KeycloakUser:
-    """Extract authenticated KeycloakUser from request state."""
-    user = getattr(request.state, "user", None)
-    if not isinstance(user, KeycloakUser):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-        )
-    return user
-
-
-def require_roles(*roles: str) -> Callable[[Request], KeycloakUser]:
-    """Dependency enforcing that current user holds at least one specified role."""
-    def dependency(request: Request) -> KeycloakUser:
-        user = get_current_user(request)
-        if not user.has_any_role(*roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Missing required role. Need one of: {', '.join(roles)}",
-            )
-        return user
-    return dependency
+__all__ = [
+    "AccessDeniedError",
+    "get_authenticated_user",
+    "get_current_user",
+    "require_all_permissions",
+    "require_all_roles",
+    "require_any_role",
+    "require_client_role",
+    "require_permissions",
+    "require_realm_role",
+    "require_roles",
+    "require_scope",
+]

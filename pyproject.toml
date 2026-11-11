@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "wiggl-app-kit"
-version = "0.1.0"
-description = "Official FastAPI SDK for WIGGLIFICATION: Keycloak Auth Middleware and OpenTelemetry Decorators"
+version = "0.2.0"
+description = "Official FastAPI SDK for WIGGLIFICATION: Keycloak Authentication, Authorization and OpenTelemetry Kit"
 readme = "README.md"
 authors = [{ name = "Wigglification Platform Team", email = "wiggi1995@gmail.com" }]
 license = { text = "MIT" }
@@ -30,6 +30,8 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
+    "build>=1.2.0",
+    "twine>=5.1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

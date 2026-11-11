@@ -71,6 +71,23 @@ class KeycloakTokenVerifier:
                 client_roles = tuple(str(r) for r in c_raw)
         return realm_roles, client_roles
 
+    def _extract_scopes_and_permissions(
+        self,
+        claims: dict[str, Any],
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        raw_scope = claims.get("scope")
+        scopes: list[str] = []
+        if isinstance(raw_scope, str):
+            scopes = [s for s in raw_scope.split() if s]
+        elif isinstance(raw_scope, list):
+            scopes = [str(s) for s in raw_scope]
+
+        raw_perms = claims.get("permissions")
+        perms: list[str] = []
+        if isinstance(raw_perms, list):
+            perms = [str(p) for p in raw_perms]
+        return tuple(scopes), tuple(perms)
+
     def verify(self, token: str) -> KeycloakUser:
         """Decode and validate Keycloak JWT token."""
         key = self._get_signing_key(token)
@@ -85,6 +102,7 @@ class KeycloakTokenVerifier:
             raise TokenVerificationError(f"Token decode failed: {exc}") from exc
 
         realm_roles, client_roles = self._extract_roles(claims)
+        scopes, perms = self._extract_scopes_and_permissions(claims)
         username = str(claims.get("preferred_username") or claims.get("sub", ""))
         return KeycloakUser(
             sub=str(claims.get("sub", "")),
@@ -92,4 +110,6 @@ class KeycloakTokenVerifier:
             email=claims.get("email"),
             realm_roles=realm_roles,
             client_roles=client_roles,
+            scopes=scopes,
+            permissions=perms,
         )
