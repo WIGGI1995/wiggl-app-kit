@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install hatchling ruff mypy pytest pytest-asyncio httpx fastapi starlette pydantic pydantic-settings pyjwt cryptography opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http
+      - run: ruff check src tests
+      - run: mypy src tests
+      - run: PYTHONPATH=src pytest -v
