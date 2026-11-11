@@ -21,11 +21,11 @@ DEFAULT_PUBLIC_PREFIXES: frozenset[str] = frozenset({
 
 
 def extract_bearer_token(request: Request) -> str | None:
-    """Extract raw bearer token string from request Authorization header."""
+    """Extract raw bearer token string from Authorization header or session cookies."""
     auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return None
-    return auth_header.removeprefix("Bearer ").strip()
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header.removeprefix("Bearer ").strip()
+    return request.cookies.get("wiggl_session_token") or request.cookies.get("wiggl_access_token")
 
 
 def get_authenticated_user(request: Request) -> KeycloakUser:

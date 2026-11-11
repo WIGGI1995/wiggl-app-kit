@@ -96,8 +96,12 @@ class HttpOtlpLogHandler(logging.Handler):
             logging.getLogger("wiggl_app_kit.telemetry").debug("OTLP log push failed: %s", exc)
 
 
-def configure_telemetry(service_name: str, otlp_endpoint: str | None = None) -> None:
-    """Initialize OpenTelemetry tracer, meter, and structured logging."""
+def configure_telemetry(
+    service_name: str,
+    otlp_endpoint: str | None = None,
+    log_level: int | str | None = None,
+) -> None:
+    """Initialize OpenTelemetry tracer, meter, and structured logging at configurable level."""
     resource = Resource.create({"service.name": service_name, "app": service_name})
     endpoint = otlp_endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 
@@ -126,8 +130,14 @@ def configure_telemetry(service_name: str, otlp_endpoint: str | None = None) -> 
     metrics.set_meter_provider(meter_provider)
 
     # Structured Logging & Loki OTLP Handler
+    env_level = log_level or os.environ.get("LOG_LEVEL", "DEBUG")
+    resolved_level = (
+        getattr(logging, str(env_level).upper(), logging.DEBUG)
+        if isinstance(env_level, str)
+        else env_level
+    )
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(resolved_level)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(JsonLogFormatter(service_name))
     root_logger.handlers.clear()
