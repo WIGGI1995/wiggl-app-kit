@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD & Automated Release Pipeline
 
 on:
   push:
@@ -6,15 +6,88 @@ on:
   pull_request:
     branches: [main, dev]
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
-  test:
+  test-and-lint:
+    name: 1. Lint, Strict Typecheck & Pytest Suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install hatchling ruff mypy pytest pytest-asyncio httpx fastapi starlette pydantic pydantic-settings pyjwt cryptography opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http
-      - run: ruff check src tests
-      - run: mypy src tests
-      - run: PYTHONPATH=src pytest -v
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatchling ruff mypy pytest pytest-asyncio httpx fastapi starlette pydantic pydantic-settings pyjwt cryptography opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi opentelemetry-exporter-otlp-proto-http build twine
+
+      - name: Ruff Lint & Formatting Check
+        run: ruff check src tests
+
+      - name: Mypy Strict Typecheck
+        run: mypy src tests
+
+      - name: Run Pytest Suite
+        run: PYTHONPATH=src pytest -v
+
+  tag-and-release:
+    name: 2. Tag SemVer Release & Publish Package
+    needs: [test-and-lint]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Read VERSION, Tag Git Release & Build Artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          TAG="v${VERSION}"
+          echo "Processing release tag ${TAG}..."
+          
+          # Configure Git user
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Tag commit if not present
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
+
+          # Build wheel and sdist
+          python -m build
+
+          # Create GitHub Release with wheel assets
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" dist/* --title "wiggl-app-kit ${TAG}" --notes-file CHANGELOG.md
+          fi
+
+      - name: Publish to PyPI (if PYPI_API_TOKEN secret present)
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -n "$TWINE_PASSWORD" ]; then
+            echo "Publishing release artifacts to PyPI..."
+            twine upload --skip-existing dist/*
+          else
+            echo "PYPI_API_TOKEN not configured; skipping PyPI upload (GitHub Release published)."
+          fi
