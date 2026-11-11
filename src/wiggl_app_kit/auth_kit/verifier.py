@@ -52,31 +52,42 @@ class KeycloakTokenVerifier:
         raise TokenVerificationError("Matching public key not found in JWKS")
 
     def _extract_roles(self, claims: dict[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-        realm_roles = tuple(claims.get("realm_access", {}).get("roles", []))
-        client_access = claims.get("resource_access", {})
+        realm_roles_list: list[str] = []
+        realm_access = claims.get("realm_access")
+        if isinstance(realm_access, dict):
+            raw = realm_access.get("roles")
+            if isinstance(raw, list):
+                realm_roles_list.extend(str(r) for r in raw)
+        top_roles = claims.get("roles")
+        if isinstance(top_roles, list):
+            realm_roles_list.extend(str(r) for r in top_roles)
+        realm_roles = tuple(dict.fromkeys(realm_roles_list))
+
         client_roles: tuple[str, ...] = ()
-        if self._client_id and self._client_id in client_access:
-            client_roles = tuple(client_access[self._client_id].get("roles", []))
+        client_access = claims.get("resource_access")
+        if self._client_id and isinstance(client_access, dict) and self._client_id in client_access:
+            c_raw = client_access[self._client_id].get("roles", [])
+            if isinstance(c_raw, list):
+                client_roles = tuple(str(r) for r in c_raw)
         return realm_roles, client_roles
 
     def verify(self, token: str) -> KeycloakUser:
         """Decode and validate Keycloak JWT token."""
         key = self._get_signing_key(token)
-        alg = "HS256" if self._secret else "RS256"
         try:
             claims = jwt.decode(
                 token,
                 key,
-                algorithms=[alg],
+                algorithms=["HS256", "RS256"],
                 options={"verify_aud": False},
             )
         except Exception as exc:
             raise TokenVerificationError(f"Token decode failed: {exc}") from exc
 
         realm_roles, client_roles = self._extract_roles(claims)
-        username = claims.get("preferred_username") or claims.get("sub", "")
+        username = str(claims.get("preferred_username") or claims.get("sub", ""))
         return KeycloakUser(
-            sub=claims.get("sub", ""),
+            sub=str(claims.get("sub", "")),
             username=username,
             email=claims.get("email"),
             realm_roles=realm_roles,

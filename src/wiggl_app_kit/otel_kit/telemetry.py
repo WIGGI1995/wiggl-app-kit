@@ -2,14 +2,19 @@
 
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from typing import Any
 
 from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 DEFAULT_SERVICE_NAME = "wiggl-app"
 
@@ -94,12 +99,33 @@ class HttpOtlpLogHandler(logging.Handler):
 def configure_telemetry(service_name: str, otlp_endpoint: str | None = None) -> None:
     """Initialize OpenTelemetry tracer, meter, and structured logging."""
     resource = Resource.create({"service.name": service_name, "app": service_name})
+    endpoint = otlp_endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+    # Trace Provider
     trace_provider = TracerProvider(resource=resource)
+    if endpoint:
+        try:
+            trace_exporter = OTLPSpanExporter(endpoint=f"{endpoint.rstrip('/')}/v1/traces")
+            trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
+        except Exception as exc:  # noqa: BLE001
+            logger = logging.getLogger("wiggl_app_kit.telemetry")
+            logger.warning("Span exporter init failed: %s", exc)
     trace.set_tracer_provider(trace_provider)
 
-    meter_provider = MeterProvider(resource=resource)
+    # Meter Provider
+    readers = []
+    if endpoint:
+        try:
+            metric_exporter = OTLPMetricExporter(endpoint=f"{endpoint.rstrip('/')}/v1/metrics")
+            reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=5000)
+            readers.append(reader)
+        except Exception as exc:  # noqa: BLE001
+            logger = logging.getLogger("wiggl_app_kit.telemetry")
+            logger.warning("Metric exporter init failed: %s", exc)
+    meter_provider = MeterProvider(resource=resource, metric_readers=readers)
     metrics.set_meter_provider(meter_provider)
 
+    # Structured Logging & Loki OTLP Handler
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     console_handler = logging.StreamHandler()
@@ -107,6 +133,6 @@ def configure_telemetry(service_name: str, otlp_endpoint: str | None = None) -> 
     root_logger.handlers.clear()
     root_logger.addHandler(console_handler)
 
-    if otlp_endpoint:
-        otlp_handler = HttpOtlpLogHandler(otlp_endpoint, service_name)
+    if endpoint:
+        otlp_handler = HttpOtlpLogHandler(endpoint, service_name)
         root_logger.addHandler(otlp_handler)
