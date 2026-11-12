@@ -101,6 +101,9 @@ Tenant apps (e.g. `WIGGI1995/App-Example`) integrate into WIGGLIFICATION under s
   - Dedicated MinIO S3 bucket (e.g. `app-wiggl-vault`).
   - Integration into the shared platform network `wiggl_net`.
   - Traefik labels must specify entrypoints `web,websecure` and middleware `wiggl-sec-headers@file`.
+- **Per-App Encrypted Secrets & Authentication Contract**:
+  - Each tenant app repository owns an isolated `.env.secrets.enc` containing app credentials and `LOG_LEVEL`.
+  - Tenant backend endpoints require Keycloak JWT Bearer tokens or `wiggl_session_token` / `wiggl_access_token` cookies; ONLY `/apps/<slug>/health` and `/apps/<slug>/api/health` bypass authentication.
 
 ---
 
@@ -140,11 +143,16 @@ All platform services and tenant apps (`App-Example`) MUST adhere to the standar
 - **Manifest-Driven Observability**:
   - Tenant apps configure observability via `observability` in `app-manifest.yaml` (`platformLogging`, `otelTracing`, `logLevel`, `metricsEnabled`, `customMetrics`, `dashboardEnabled`). Grafana provides a dedicated dynamic dashboard for each tenant app automatically without manual dashboard configuration.
 - **Pre-Configured Default Dashboards & Admin Authority**:
-  - Grafana MUST provide immediately available pre-provisioned dashboards for the platform administrator (`admin:admin` / `wiggi1995@gmail.com`) with unrestricted root privileges.
-  - Essential pre-configured dashboards:
-    1. **Raspberry Pi Host & Server Overview**: Hardware metrics collected via `node-exporter` (CPU load, RAM usage, storage volume disk space, temperature, network I/O).
-    2. **Platform & Tenant Logs Viewer**: Real-time LogQL streaming from Loki for all connected container services and application workloads with severity filtering (`DEBUG` to `CRITICAL`).
-    3. **Tenant App Ecosystem**: Latency percentiles (P50/P95/P99), request throughput, error tracking, and storage quota gauges.
+  - Grafana MUST provide immediately available pre-provisioned dashboards with Keycloak Generic OAuth SSO (`auth.generic_oauth`).
+  - **4 Distinct Thematic Dashboard Areas**:
+    1. **Host & Pi Hardware (`server-overview.json`)**: Real-time Raspberry Pi hardware metrics collected via `node-exporter` (SoC temperature, CPU load, RAM usage, storage volume disk space, network I/O, system load).
+    2. **Scrapers Breakdown (`server-overview.json`)**: Prometheus scrape targets status table, scrape duration/latency, and scrape sample rates.
+    3. **Thematic & Unified Logs (`app-logs-otel.json`)**: 5 thematic log streams (Security & Auth Events, Errors & Exceptions, HTTP/API Requests, Storage & Quotas, Live Log Stream) with sorting and dynamic filters for App, Service, Level (`DEBUG` to `CRITICAL`), and search query.
+    4. **Tenant Applications (`apps-overview.json`, `tenant-app-observability.json`)**: Ecosystem view of all tenant workloads (latency percentiles P50/P95/P99, throughput RPS, error tracking, MinIO storage quotas).
+  - **Token-Based RBAC & SSO**:
+    - Central Keycloak SSO via `auth.generic_oauth` (`grafana` client).
+    - Role mapping: `platform-admin` and `admin` -> Grafana Admin; all other authenticated users -> Viewer.
+    - Anonymous access is strictly disabled (`auth.anonymous enabled = false`).
 
 ---
 
@@ -154,9 +162,9 @@ All Python/FastAPI tenant apps targeting the WIGGLIFICATION platform MUST instal
 - **Zero-Boilerplate Mandate**:
   - Tenant repositories and templates (`templates/app-template`) MUST NOT duplicate SDK logic. Local decorator, verifier, sanitizer, and telemetry boilerplate must be removed and consumed strictly from `wiggl-app-kit`.
 - **`auth_kit.authentication` (Authentication)**:
-  - `KeycloakAuthMiddleware`: Standard Starlette/FastAPI middleware validating Bearer tokens against Keycloak JWKS, providing public route bypass (`/health`, `/info`, `/docs`, `/openapi.json`), and injecting `KeycloakUser` into `request.state.user`.
+  - `KeycloakAuthMiddleware`: Standard Starlette/FastAPI middleware validating Bearer tokens against Keycloak JWKS, supporting HttpOnly/SameSite cookies (`wiggl_session_token` / `wiggl_access_token`), providing public route bypass, and injecting `KeycloakUser` into `request.state.user`.
   - `KeycloakTokenVerifier`: Cryptographic JWT verifier with dual RS256 JWKS caching and HS256 secret support.
-  - `extract_bearer_token`: Header extraction helper.
+  - `extract_bearer_token`: Header & cookie extraction helper.
   - `get_authenticated_user` (`get_current_user`): Request user dependency.
 - **`auth_kit.authorization` (Authorization)**:
   - Role-Based Access Control (RBAC):
@@ -170,5 +178,32 @@ All Python/FastAPI tenant apps targeting the WIGGLIFICATION platform MUST instal
   - `configure_telemetry(service_name, otlp_endpoint)`: Automated setup for TracerProvider (`OTLPSpanExporter`), MeterProvider (`OTLPMetricExporter`), and OTLP log shipping (`HttpOtlpLogHandler`).
   - Decorator suite: `@observe`, `@log_endpoint`, `@track_metrics`, `@trace_span`, `@audit_event`, `@error_tracker`, `@quota_guard`.
   - Automated Secret & PII Sanitization.
+
+---
+
+## 11. Central Keycloak SSO, Security Model & Per-App Secrets Contract
+- **Central Keycloak SSO & RBAC Authentication**:
+  - All platform routes and tenant apps require authenticated Keycloak credentials via either:
+    1. HTTP Authorization Header: `Authorization: Bearer <jwt_token>`
+    2. HttpOnly / SameSite Cookies: `wiggl_session_token` (HttpOnly, Secure, SameSite=Lax, path=/) or `wiggl_access_token` (Secure, SameSite=Lax, path=/).
+  - **Strict Authentication Bypass Whitelist**:
+    - ONLY the following health endpoints bypass authentication:
+      - `/health`
+      - `/healthz`
+      - `/readyz`
+      - `/api/health`
+      - `/apps/<slug>/health`
+      - `/apps/<slug>/api/health`
+    - All other endpoints, administrative APIs, and tenant routes strictly require valid authentication.
+- **Single Superuser & Security Model**:
+  - Single superuser `admin` defined in `.env` before encryption (`ADMIN_USERNAME=admin`, `ADMIN_PASSWORD=...`).
+  - Random/dummy/test users are strictly prohibited in production and committed configurations.
+  - 2FA/TOTP is disabled for now (`totp_required: false`, no mandatory `CONFIGURE_TOTP` action) to streamline automated operations.
+  - Admin email is decoupled from personal addresses (configured as decoupled system identifier e.g. `admin@wiggl.local` or omitted).
+  - The `admin` superuser has exclusive authority to provision and manage new platform users via the Platform API / Keycloak.
+- **Per-App Encrypted Environments (`.env.secrets.enc`)**:
+  - Each tenant application repository owns an isolated `.env.secrets.enc` containing app-specific credentials, database secrets, and runtime configuration including `LOG_LEVEL` (e.g. `LOG_LEVEL=DEBUG`).
+  - Zero Plaintext Secrets in version control: secrets are encrypted with AES-256-GCM / Fernet using platform encryption tooling before git commit.
+  - Runtime decryption occurs strictly during container startup/deployment without persisting decrypted files to disk.
 
 
