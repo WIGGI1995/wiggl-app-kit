@@ -68,7 +68,7 @@ Deployments execute automatically via GitHub Actions runner (`[self-hosted, pi]`
   - `wiggl-postgres` is marked `restart: always` and MUST NEVER be pulled or recreated during platform deployments (`docker compose up -d --no-recreate postgres`).
   - Container recreate on Postgres is strictly prohibited; volume persistence (`./data/postgres`) and container ID must be preserved across updates.
 - **Force-Recreate Guard for Config Mounts**:
-  - Services relying on file bind mounts (e.g. `ddns-updater`, tenant apps) must be deployed with `--force-recreate` when configuration or mount namespaces change. Docker Compose does not detect host file inode replacements without recreation.
+  - Services relying on file bind mounts (e.g. tenant apps, config mounts) must be deployed with `--force-recreate` when configuration or mount namespaces change. Docker Compose does not detect host file inode replacements without recreation.
 - **Keycloak 26 Hostname v2 & Proxy Routing**:
   - Keycloak requires `KC_HOSTNAME: "${PUBLIC_BASE_URL:-https://wiggi.ddns.net}/auth"` and `KC_HTTP_RELATIVE_PATH: "/auth"`.
   - Traefik must pass `X-Forwarded-Proto=https` and `X-Forwarded-Port=443` via headers middleware.
