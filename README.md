@@ -20,6 +20,27 @@ pip install wiggl-app-kit
 
 ---
 
+## Turnkey 1-Line Onboarding (`setup_wiggl_app`)
+
+The easiest way to bootstrap any tenant application into the WIGGLIFICATION platform:
+
+```python
+from fastapi import Depends, FastAPI
+from wiggl_app_kit import KeycloakUser, observe, require_roles, setup_wiggl_app
+
+app = FastAPI()
+
+# Turnkey bootstrap: sets up Keycloak auth, health check bypass, and multi-level OTel/Loki telemetry
+setup_wiggl_app(app, service_name="my-app")
+
+@app.get("/items")
+@observe("my_app.list_items")
+def list_items(user: KeycloakUser = Depends(require_roles("my-app-viewer"))):
+    return {"message": f"Hello {user.username}"}
+```
+
+---
+
 ## 1. Authentication Kit (`auth_kit.authentication`)
 
 Validates Keycloak JWT bearer tokens using cached JWKS (RS256) or symmetric secrets (HS256) with zero boilerplate.

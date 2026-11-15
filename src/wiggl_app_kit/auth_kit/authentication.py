@@ -40,6 +40,9 @@ def get_authenticated_user(request: Request) -> KeycloakUser:
     return user
 
 
+get_current_user = get_authenticated_user
+
+
 class KeycloakAuthMiddleware(BaseHTTPMiddleware):
     """Enforces valid Keycloak JWT bearer authentication on protected routes."""
 
