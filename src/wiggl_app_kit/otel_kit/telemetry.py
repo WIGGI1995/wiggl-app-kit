@@ -8,13 +8,21 @@ from datetime import UTC, datetime
 from typing import Any
 
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+try:
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+except ImportError:
+    OTLPSpanExporter = None  # type: ignore
+
+try:
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+except ImportError:
+    OTLPMetricExporter = None  # type: ignore
 
 DEFAULT_SERVICE_NAME = "wiggl-app"
 
@@ -67,8 +75,16 @@ class HttpOtlpLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         span = trace.get_current_span()
         ctx = span.get_span_context()
-        trace_id_hex = format(ctx.trace_id, "032x") if ctx.is_valid else ""
-        span_id_hex = format(ctx.span_id, "016x") if ctx.is_valid else ""
+        formatted_message = f"[{record.levelname}] {record.name}: {record.getMessage()}"
+
+        log_record_payload: dict[str, Any] = {
+            "timeUnixNano": str(time.time_ns()),
+            "severityText": record.levelname,
+            "body": {"stringValue": formatted_message},
+        }
+        if ctx.is_valid:
+            log_record_payload["traceId"] = format(ctx.trace_id, "032x")
+            log_record_payload["spanId"] = format(ctx.span_id, "016x")
 
         body_payload = {
             "resourceLogs": [{
@@ -76,16 +92,12 @@ class HttpOtlpLogHandler(logging.Handler):
                     "attributes": [
                         {"key": "service.name", "value": {"stringValue": self._service_name}},
                         {"key": "app", "value": {"stringValue": self._service_name}},
+                        {"key": "job", "value": {"stringValue": self._service_name}},
+                        {"key": "level", "value": {"stringValue": record.levelname}},
                     ]
                 },
                 "scopeLogs": [{
-                    "logRecords": [{
-                        "timeUnixNano": str(time.time_ns()),
-                        "severityText": record.levelname,
-                        "body": {"stringValue": record.getMessage()},
-                        "traceId": trace_id_hex,
-                        "spanId": span_id_hex,
-                    }]
+                    "logRecords": [log_record_payload]
                 }]
             }]
         }
@@ -102,12 +114,16 @@ def configure_telemetry(
     log_level: int | str | None = None,
 ) -> None:
     """Initialize OpenTelemetry tracer, meter, and structured logging at configurable level."""
-    resource = Resource.create({"service.name": service_name, "app": service_name})
+    resource = Resource.create({
+        "service.name": service_name,
+        "app": service_name,
+        "job": service_name,
+    })
     endpoint = otlp_endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 
     # Trace Provider
     trace_provider = TracerProvider(resource=resource)
-    if endpoint:
+    if endpoint and OTLPSpanExporter is not None:
         try:
             trace_exporter = OTLPSpanExporter(endpoint=f"{endpoint.rstrip('/')}/v1/traces")
             trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
@@ -118,7 +134,7 @@ def configure_telemetry(
 
     # Meter Provider
     readers = []
-    if endpoint:
+    if endpoint and OTLPMetricExporter is not None:
         try:
             metric_exporter = OTLPMetricExporter(endpoint=f"{endpoint.rstrip('/')}/v1/metrics")
             reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=5000)
