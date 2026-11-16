@@ -20,6 +20,8 @@ def setup_wiggl_app(
     otlp_endpoint: str | None = None,
     log_level: str | int | None = None,
     public_prefixes: Iterable[str] | None = None,
+    token_verifier: Any | None = None,
+    verifier: Any | None = None,
 ) -> None:
     """Universally bootstrap any FastAPI application for the WIGGLIFICATION platform.
 
@@ -35,16 +37,17 @@ def setup_wiggl_app(
         log_level=resolved_level,
     )
 
-    jwks = keycloak_jwks_url or os.environ.get("KEYCLOAK_JWKS_URL")
-    if not jwks:
-        base_url = os.environ.get("KEYCLOAK_URL", "http://keycloak:8080/auth").rstrip("/")
-        realm = os.environ.get("KEYCLOAK_REALM", "platform")
-        jwks = f"{base_url}/realms/{realm}/protocol/openid-connect/certs"
+    resolved_verifier = verifier or token_verifier
+    if not resolved_verifier:
+        jwks = keycloak_jwks_url or os.environ.get("KEYCLOAK_JWKS_URL")
+        if not jwks:
+            base_url = os.environ.get("KEYCLOAK_URL", "http://keycloak:8080/auth").rstrip("/")
+            realm = os.environ.get("KEYCLOAK_REALM", "platform")
+            jwks = f"{base_url}/realms/{realm}/protocol/openid-connect/certs"
 
-    cid = client_id or os.environ.get("KEYCLOAK_CLIENT_ID", f"app-{service_name}")
-    sec = jwt_secret or os.environ.get("JWT_SECRET")
-
-    verifier = KeycloakTokenVerifier(jwks_url=jwks, client_id=cid, secret=sec)
+        cid = client_id or os.environ.get("KEYCLOAK_CLIENT_ID", f"app-{service_name}")
+        sec = jwt_secret or os.environ.get("JWT_SECRET")
+        resolved_verifier = KeycloakTokenVerifier(jwks_url=jwks, client_id=cid, secret=sec)
 
     default_public = {
         "/health",
@@ -61,13 +64,12 @@ def setup_wiggl_app(
 
     app.add_middleware(
         KeycloakAuthMiddleware,
-        verifier=verifier,
+        verifier=resolved_verifier,
         public_prefixes=frozenset(default_public),
     )
     logging.getLogger(service_name).info(
-        "WIGGLIFICATION tenant application bootstrapped successfully: service=%s, client_id=%s",
+        "WIGGLIFICATION tenant application bootstrapped successfully: service=%s",
         service_name,
-        cid,
     )
 
 
