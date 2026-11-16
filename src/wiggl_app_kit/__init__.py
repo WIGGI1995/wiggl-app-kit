@@ -41,7 +41,7 @@ from wiggl_app_kit.otel_kit.telemetry import (
     configure_telemetry,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "DEFAULT_SERVICE_NAME",
